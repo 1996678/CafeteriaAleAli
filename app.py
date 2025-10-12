@@ -538,15 +538,23 @@ class MainApp(tk.Tk):
             if row is None:
                 from db import _crear_tablas_basicas
                 _crear_tablas_basicas(conn)
+
+        need_init = False
         with conectar() as conn:
             from db import _migraciones
             _migraciones(conn)
             r = conn.execute("SELECT COUNT(*) c FROM sucursales").fetchone()
             if r["c"] == 0:
-                nombre = simpledialog.askstring("Inicializar", "Nombre de la sucursal:")
-                if not nombre:
-                    messagebox.showerror("Error","Debes indicar un nombre de sucursal."); self.destroy(); return
-                iniciar_bd(nombre)
+                need_init = True
+
+        if need_init:
+            nombre = simpledialog.askstring("Inicializar", "Nombre de la sucursal:")
+            if not nombre:
+                messagebox.showerror("Error","Debes indicar un nombre de sucursal.")
+                self.destroy()
+                return
+            iniciar_bd(nombre)
+
 
     def _menu_principal(self):
         cont = ttk.Frame(self); cont.pack(fill="both", expand=True, padx=20, pady=20)
