@@ -1,5 +1,6 @@
+import csv
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, filedialog
 from db import *
 
 # ---------- Proveedores ----------
@@ -96,15 +97,15 @@ class VentanaProductos(tk.Toplevel):
         ttk.Label(frm, text="Precio (solo vendibles):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
         self.p_precio = ttk.Entry(frm, width=10); self.p_precio.insert(0,"0"); self.p_precio.grid(row=r, column=1, padx=6); r+=1
 
-        ttk.Label(frm, text="Código (para ventas):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
-        self.p_codigo = ttk.Entry(frm, width=12); self.p_codigo.grid(row=r, column=1, padx=6); r+=1
+        ttk.Label(frm, text="Código (obligatorio; si lo dejas vacío se autogenera):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
+        self.p_codigo = ttk.Entry(frm, width=14); self.p_codigo.grid(row=r, column=1, padx=6); r+=1
 
         ttk.Button(frm, text="Crear producto", command=self.crear_producto).grid(row=r, column=0, columnspan=2, pady=8); r+=1
 
         cols=("nombre","categoria","unidad","vendible","precio","codigo")
         self.tree = ttk.Treeview(frm, columns=cols, show="headings", height=14)
         headers = ["Nombre","Categoría","Unidad","Vendible","Precio","Código"]
-        widths = [160,120,80,80,90,100]
+        widths = [160,120,80,80,90,120]
         for c,h,w in zip(cols,headers,widths):
             self.tree.heading(c, text=h); self.tree.column(c, width=w)
         self.tree.grid(row=r, column=0, columnspan=2, sticky="nsew", padx=6, pady=6)
@@ -115,12 +116,11 @@ class VentanaProductos(tk.Toplevel):
     def _toggle_campos_vendible(self, *_):
         cat = self.p_categoria.get().strip()
         es_insumo = (cat == "Insumos")
-        state = "disabled" if es_insumo else "normal"
-        self.p_precio.config(state=state)
-        self.p_codigo.config(state=state)
+        self.p_precio.config(state="disabled" if es_insumo else "normal")
         if es_insumo:
-            self.p_precio.delete(0, "end"); self.p_precio.insert(0, "0")
-            self.p_codigo.delete(0, "end")
+            self.p_precio.delete(0, "end")
+            self.p_precio.insert(0, "0")
+        self.p_codigo.config(state="normal")
 
     def crear_producto(self):
         try:
@@ -128,12 +128,8 @@ class VentanaProductos(tk.Toplevel):
             categoria = self.p_categoria.get().strip()
             unidad = self.p_unidad.get().strip()
             precio = float(self.p_precio.get() or 0)
-            codigo = self.p_codigo.get().strip()
+            codigo = (self.p_codigo.get() or "").strip()
             if not nombre: raise ValueError("Nombre obligatorio.")
-            if categoria == "Insumos":
-                precio = 0.0
-                if codigo == "":
-                    codigo = None
             crear_producto(nombre, categoria, unidad, precio, codigo)
             self.refrescar()
             messagebox.showinfo("OK","Producto creado.")
@@ -145,7 +141,7 @@ class VentanaProductos(tk.Toplevel):
         for p in listar_productos():
             self.tree.insert("", "end", values=(p["nombre"], p["categoria"], p["unidad"], "sí" if p["es_vendible"] else "no", f'{p["precio"]:.2f}', p.get("codigo","")))
 
-# ---------- Recetas (solo Elaborados) ----------
+# ---------- Recetas ----------
 class VentanaRecetas(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
@@ -207,7 +203,7 @@ class VentanaRecetas(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
-# ---------- Producción (solo Elaborados) ----------
+# ---------- Producción ----------
 class VentanaProduccion(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
@@ -312,7 +308,7 @@ class VentanaCompras(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
-# ---------- Ventas (con borrar seleccionado) ----------
+# ---------- Ventas ----------
 class VentanaVentas(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
@@ -329,7 +325,6 @@ class VentanaVentas(tk.Toplevel):
         ttk.Label(row, text="Nota:").pack(side="left", padx=6); self.nota = ttk.Entry(row, width=30); self.nota.pack(side="left")
         ttk.Button(row, text="Registrar ticket", command=self.registrar).pack(side="right", padx=6)
 
-        # CÓDIGO
         codigo_box = ttk.LabelFrame(frm, text="Agregar por CÓDIGO")
         codigo_box.pack(fill="x", padx=6, pady=6)
         ttk.Label(codigo_box, text="Código:").pack(side="left")
@@ -338,7 +333,6 @@ class VentanaVentas(tk.Toplevel):
         self.cant_cod = ttk.Entry(codigo_box, width=8); self.cant_cod.insert(0,"1"); self.cant_cod.pack(side="left", padx=6)
         ttk.Button(codigo_box, text="Agregar", command=self.add_codigo).pack(side="left", padx=6)
 
-        # Búsqueda
         busc_box = ttk.LabelFrame(frm, text="Buscar por código o descripción")
         busc_box.pack(fill="both", padx=6, pady=6)
         top = ttk.Frame(busc_box); top.pack(fill="x")
@@ -355,7 +349,6 @@ class VentanaVentas(tk.Toplevel):
             self.result.heading(c, text=t); self.result.column(c, width=w)
         self.result.pack(fill="both", expand=True, padx=6, pady=6)
 
-        # Ticket
         cols=("codigo","producto","cantidad","precio","subtotal")
         self.tree = ttk.Treeview(frm, columns=cols, show="headings", height=12)
         for c,t,w in [("codigo","Código",100),("producto","Producto",240),("cantidad","Cantidad",90),("precio","Precio unit.",100),("subtotal","Subtotal",100)]:
@@ -366,13 +359,11 @@ class VentanaVentas(tk.Toplevel):
         ttk.Label(frm, text="Solo productos vendibles (Elaborados y Productos); los Insumos NO se venden aquí.").pack(anchor="w", padx=6)
         ttk.Button(actions, text="Borrar seleccionado", command=self.borrar_seleccionado).pack(side="left", padx=4)
 
-        # Estructura: dict iid -> (producto_id, cantidad, precio, codigo, nombre)
         self.items_by_iid = {}
 
     def _refrescar_caj(self):
         self.caj["values"] = [c["nombre"] for c in listar_cajeros()]
 
-    # --- agregar al ticket ---
     def _insert_ticket_row(self, pid, nombre, codigo, precio, cantidad):
         subtotal = (precio * cantidad) if self.tipo.get()=="VENTA" else 0.0
         iid = self.tree.insert("", "end", values=(codigo, nombre, cantidad, f"{precio:.2f}", f"{subtotal:.2f}"))
@@ -411,7 +402,6 @@ class VentanaVentas(tk.Toplevel):
             messagebox.showerror("Error","El código seleccionado ya no es válido"); return
         self._insert_ticket_row(r["id"], nombre, r["codigo"], r["precio"], cant)
 
-    # --- borrar seleccionado del ticket ---
     def borrar_seleccionado(self):
         sel = self.tree.selection()
         if not sel:
@@ -443,10 +433,10 @@ class VentanaInventario(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
         self.title("Inventario")
-        cols=("producto","stock","unidad","costo")
+        cols=("producto","stock","unidad","tipo")
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
-        headers=["Producto","Stock","Unidad","Costo unitario"]
-        widths=[260,120,80,120]
+        headers=["Producto","Stock","Unidad","Tipo"]
+        widths=[260,120,80,140]
         for c,h,w in zip(cols,headers,widths):
             self.tree.heading(c, text=h); self.tree.column(c, width=w)
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
@@ -457,7 +447,7 @@ class VentanaInventario(tk.Toplevel):
         for i in self.tree.get_children(): self.tree.delete(i)
         try:
             for r in inventario_actual():
-                self.tree.insert("", "end", values=(r["nombre"], f'{r["cantidad"]:.3f}', r["unidad"], f'{r["costo_unitario"]:.2f}'))
+                self.tree.insert("", "end", values=(r["nombre"], f'{r["cantidad"]:.3f}', r["unidad"], r["categoria"]))
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
@@ -474,7 +464,7 @@ class VentanaReportes(tk.Toplevel):
         ttk.Button(btns, text="Ventas DETALLADO", command=self.rp_ventas_det).pack(side="left", padx=4)
         ttk.Button(btns, text="Merma DETALLADO", command=self.rp_merma_det).pack(side="left", padx=4)
         ttk.Button(btns, text="Top productos", command=self.rp_top).pack(side="left", padx=4)
-        ttk.Button(btns, text="Bajo stock (<= 500 g/pz)", command=self.rp_bajo).pack(side="left", padx=4)
+        ttk.Button(btns, text="Exportar CSV", command=self.exportar_csv).pack(side="right", padx=4)
 
         cols=("c1","c2","c3","c4","c5","c6")
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
@@ -482,11 +472,20 @@ class VentanaReportes(tk.Toplevel):
             self.tree.heading(c, text=c); self.tree.column(c, width=160)
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
 
+        self._headers_actuales = []  # para exportación
+
     def _clear(self, headers):
+        self._headers_actuales = headers[:]
         for i in self.tree.get_children(): self.tree.delete(i)
         for i,h in enumerate(headers):
-            self.tree.heading(f"c{i+1}", text=h)
-            self.tree.column(f"c{i+1}", width=220 if i==1 else 140)
+            col = f"c{i+1}"
+            self.tree.heading(col, text=h)
+            self.tree.column(col, width=220 if i==1 else 140)
+        # Vacía columnas remanentes si headers < 6
+        for j in range(len(headers), 6):
+            col = f"c{j+1}"
+            self.tree.heading(col, text="")
+            self.tree.column(col, width=0)
 
     def rp_ventas_det(self):
         d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
@@ -499,10 +498,10 @@ class VentanaReportes(tk.Toplevel):
 
     def rp_merma_det(self):
         d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
-        self._clear(["Fecha","Producto","Unidades","Costo unit.","Costo total","-"])
+        self._clear(["Fecha","Producto","Unidades","Precio (venta)","Pérdida","-"])
         try:
             for r in reporte_merma_detallado(d,h):
-                self.tree.insert("", "end", values=(r["fecha"], r["producto"], r["cantidad"], f'{r["costo_unitario"]:.2f}', f'{r["total_costo"]:.2f}', ""))
+                self.tree.insert("", "end", values=(r["fecha"], r["producto"], r["cantidad"], f'{(r["precio_venta"] or 0):.2f}', f'{(r["perdida"] or 0):.2f}', ""))
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
@@ -515,20 +514,35 @@ class VentanaReportes(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
-    def rp_bajo(self):
-        self._clear(["Producto","Stock","Unidad","-","-","-"])
+    def exportar_csv(self):
+        if not self._headers_actuales:
+            messagebox.showwarning("Atención","No hay reporte para exportar.")
+            return
+        ruta = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV","*.csv")],
+            title="Guardar reporte como CSV"
+        )
+        if not ruta:
+            return
         try:
-            for r in bajo_stock(500.0):
-                self.tree.insert("", "end", values=(r["nombre"], r["cantidad"], r["unidad"], "", "", ""))
+            with open(ruta, "w", newline="", encoding="utf-8-sig") as f:
+                w = csv.writer(f)
+                w.writerow(self._headers_actuales)
+                for iid in self.tree.get_children():
+                    vals = self.tree.item(iid, "values")
+                    # Solo exportar tantas columnas como headers visibles
+                    w.writerow(list(vals)[:len(self._headers_actuales)])
+            messagebox.showinfo("OK", f"CSV guardado en:\n{ruta}")
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error", f"No se pudo guardar el CSV:\n{e}")
 
 # ---------- Main ----------
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Cafetería — Inventario y Ventas — v2.6")
-        self.geometry("1000x660")
+        self.title("Cafetería — Inventario y Ventas — v2.7")
+        self.geometry("1000x680")
         self._verificar_bd()
         self._menu_principal()
 
@@ -554,7 +568,6 @@ class MainApp(tk.Tk):
                 self.destroy()
                 return
             iniciar_bd(nombre)
-
 
     def _menu_principal(self):
         cont = ttk.Frame(self); cont.pack(fill="both", expand=True, padx=20, pady=20)
