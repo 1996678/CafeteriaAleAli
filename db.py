@@ -58,7 +58,6 @@ def _migraciones(conn):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT UNIQUE NOT NULL,
             telefono TEXT,
-            contacto TEXT,
             activo INTEGER NOT NULL DEFAULT 1
         )"""
     )
@@ -121,13 +120,13 @@ def listar_categorias() -> List[str]:
 
 
 def a_base(unidad: str, cantidad: float) -> float:
-    if unidad == "kg":
+    if unidad == "Kilo":
         return cantidad * 1000.0
     return cantidad
 
 
 def desde_base(unidad: str, cantidad_base: float) -> float:
-    if unidad == "kg":
+    if unidad == "Kilo":
         return cantidad_base / 1000.0
     return cantidad_base
 
@@ -140,15 +139,15 @@ def crear_proveedor(
         raise ValueError("Nombre de proveedor obligatorio.")
     with tx() as conn:
         conn.execute(
-            "INSERT INTO proveedores(nombre, telefono, contacto) VALUES (?,?,?)",
-            (nombre, telefono, contacto),
+            "INSERT INTO proveedores(nombre, telefono) VALUES (?,?)",
+            (nombre, telefono),
         )
 
 
 def listar_proveedores() -> List[Dict]:
     with conectar() as conn:
         rows = conn.execute(
-            "SELECT id, nombre, telefono, contacto FROM proveedores WHERE activo=1 ORDER BY nombre"
+            "SELECT id, nombre, telefono FROM proveedores WHERE activo=1 ORDER BY nombre"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -179,8 +178,8 @@ def crear_producto(
 ):
     if categoria not in CATS_FIJAS:
         raise ValueError("La categoría debe ser 'Insumos', 'Elaborados' o 'Productos'")
-    if unidad not in ("pz", "g", "kg"):
-        raise ValueError("Unidad debe ser 'pz', 'g' o 'kg'")
+    if unidad not in ("Pieza", "Gramo", "Kilo"):
+        raise ValueError("Unidad debe ser 'Pieza', 'Gramo' o 'Kilo'")
     es_vendible = 1 if categoria in ("Elaborados", "Productos") else 0
     with tx() as conn:
         cat_id = _id_por_nombre(conn, "categorias", categoria)

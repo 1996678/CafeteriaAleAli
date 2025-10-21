@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS productos(
   codigo TEXT UNIQUE,
   nombre TEXT NOT NULL UNIQUE,
   categoria_id INTEGER REFERENCES categorias(id),
-  unidad TEXT NOT NULL CHECK(unidad IN ('pz','g','kg')),
+  unidad TEXT NOT NULL CHECK(unidad IN ('Pieza','Gramo','Kilo')),
   es_vendible INTEGER NOT NULL DEFAULT 0,
   precio REAL NOT NULL DEFAULT 0.0,
   costo REAL NOT NULL DEFAULT 0.0,
@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS proveedores(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   nombre TEXT UNIQUE NOT NULL,
   telefono TEXT,
-  contacto TEXT,
   activo INTEGER NOT NULL DEFAULT 1
 );
 

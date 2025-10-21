@@ -4,6 +4,7 @@ from tkinter import ttk, messagebox, simpledialog, filedialog
 from db import *
 
 # ---------- Proveedores ----------
+
 class VentanaProveedores(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
@@ -12,35 +13,69 @@ class VentanaProveedores(tk.Toplevel):
 
         top = ttk.LabelFrame(frm, text="Agregar proveedor")
         top.pack(fill="x", padx=4, pady=6)
-        ttk.Label(top, text="Nombre:").grid(row=0, column=0, sticky="w", padx=6, pady=4)
-        ttk.Label(top, text="Teléfono:").grid(row=1, column=0, sticky="w", padx=6, pady=4)
-        ttk.Label(top, text="Contacto:").grid(row=2, column=0, sticky="w", padx=6, pady=4)
-        self.p_nom = ttk.Entry(top, width=30); self.p_nom.grid(row=0, column=1, padx=6, pady=4)
-        self.p_tel = ttk.Entry(top, width=30); self.p_tel.grid(row=1, column=1, padx=6, pady=4)
-        self.p_con = ttk.Entry(top, width=30); self.p_con.grid(row=2, column=1, padx=6, pady=4)
-        ttk.Button(top, text="Guardar", command=self.add).grid(row=0, column=2, rowspan=3, padx=8)
 
-        cols=("nombre","telefono","contacto")
+        ttk.Label(top, text="Nombre:").grid(row=0, column=0, sticky="w", padx=6, pady=4)
+        ttk.Label(top, text="Teléfono (10 dígitos):").grid(row=1, column=0, sticky="w", padx=6, pady=4)
+
+        # nombre: fuerza mayúsculas al teclear
+        self.var_nom = tk.StringVar()
+        self.p_nom = ttk.Entry(top, width=30, textvariable=self.var_nom)
+        self.p_nom.grid(row=0, column=1, padx=6, pady=4)
+        self.var_nom.trace_add("write", self._nombre_to_upper)
+
+        self.p_tel = ttk.Entry(top, width=30); self.p_tel.grid(row=1, column=1, padx=6, pady=4)
+
+        ttk.Button(top, text="Guardar", command=self.add).grid(row=0, column=2, rowspan=2, padx=8, pady=4, sticky="ns")
+
+        cols = ("nombre", "telefono")
         self.tree = ttk.Treeview(frm, columns=cols, show="headings", height=14)
-        for c,t,w in [("nombre","Nombre",240),("telefono","Teléfono",160),("contacto","Contacto",200)]:
-            self.tree.heading(c, text=t); self.tree.column(c, width=w)
+        self.tree.heading("nombre", text="Nombre");   self.tree.column("nombre",  width=280)
+        self.tree.heading("telefono", text="Teléfono"); self.tree.column("telefono", width=180)
         self.tree.pack(fill="both", expand=True, padx=6, pady=6)
+
         ttk.Button(frm, text="Refrescar", command=self.refrescar).pack(pady=6)
         self.refrescar()
 
+    def _nombre_to_upper(self, *args):
+        v = self.var_nom.get()
+        u = v.upper()
+        if v != u:
+            # evita bucle de trazas
+            self.var_nom.trace_remove("write", self._nombre_to_upper_id)
+            self.var_nom.set(u)
+            self._nombre_to_upper_id = self.var_nom.trace_add("write", self._nombre_to_upper)
+
+    # registra la traza correctamente
+    _nombre_to_upper_id = None
+
     def add(self):
         try:
-            crear_proveedor(self.p_nom.get().strip(), self.p_tel.get().strip() or None, self.p_con.get().strip() or None)
-            self.p_nom.delete(0,"end"); self.p_tel.delete(0,"end"); self.p_con.delete(0,"end")
+            nombre = (self.var_nom.get().strip().upper())
+            tel_raw = self.p_tel.get().strip()
+            telefono = "".join(ch for ch in tel_raw if ch.isdigit())
+
+            if not nombre:
+                raise ValueError("El nombre es obligatorio.")
+            if tel_raw and len(telefono) != 10:
+                raise ValueError("El teléfono debe tener exactamente 10 dígitos.")
+            if not tel_raw:
+                telefono = None
+
+            crear_proveedor(nombre, telefono)  # firma: (nombre, telefono)
+
+            self.var_nom.set("")
+            self.p_tel.delete(0, "end")
             self.refrescar()
-            messagebox.showinfo("OK","Proveedor guardado.")
+            messagebox.showinfo("OK", "Proveedor guardado.")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
     def refrescar(self):
-        for i in self.tree.get_children(): self.tree.delete(i)
+        for i in self.tree.get_children():
+            self.tree.delete(i)
         for r in listar_proveedores():
-            self.tree.insert("", "end", values=(r["nombre"], r.get("telefono",""), r.get("contacto","")))
+            self.tree.insert("", "end", values=(r.get("nombre",""), r.get("telefono","")))
+
 
 # ---------- Cajeros ----------
 class VentanaCajeros(tk.Toplevel):
@@ -80,56 +115,83 @@ class VentanaProductos(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
         self.title("Productos (Insumos / Elaborados / Productos)")
+
         frm = ttk.Frame(self); frm.pack(fill="both", expand=True, padx=8, pady=8)
-        r=0
+
+        r = 0
         ttk.Label(frm, text="Nombre:").grid(row=r, column=0, sticky="w", padx=6, pady=4)
-        self.p_nombre = ttk.Entry(frm, width=24); self.p_nombre.grid(row=r, column=1, padx=6); r+=1
+        self.var_nombre = tk.StringVar()
+        self.p_nombre = ttk.Entry(frm, width=24, textvariable=self.var_nombre)
+        self.p_nombre.grid(row=r, column=1, padx=6); r += 1
+        self.var_nombre.trace_add("write", self._titulo_nombre)
 
         ttk.Label(frm, text="Categoría:").grid(row=r, column=0, sticky="w", padx=6, pady=4)
         self.p_categoria = ttk.Combobox(frm, values=["Insumos","Elaborados","Productos"], width=20, state="readonly")
         self.p_categoria.set("Insumos")
-        self.p_categoria.grid(row=r, column=1, padx=6); r+=1
+        self.p_categoria.grid(row=r, column=1, padx=6); r += 1
         self.p_categoria.bind("<<ComboboxSelected>>", self._toggle_campos_vendible)
 
-        ttk.Label(frm, text="Unidad (pz/g/kg):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
-        self.p_unidad = ttk.Combobox(frm, values=["pz","g","kg"], width=6, state="readonly"); self.p_unidad.set("pz"); self.p_unidad.grid(row=r, column=1, padx=6); r+=1
+        ttk.Label(frm, text="Unidad (Pieza/Gramo/Kilo):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
+        self.p_unidad = ttk.Combobox(frm, values=["Pieza","Gramo","Kilo"], width=6, state="readonly")
+        self.p_unidad.set("Pieza")
+        self.p_unidad.grid(row=r, column=1, padx=6); r += 1
 
         ttk.Label(frm, text="Precio (solo vendibles):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
-        self.p_precio = ttk.Entry(frm, width=10); self.p_precio.insert(0,"0"); self.p_precio.grid(row=r, column=1, padx=6); r+=1
+        self.p_precio = ttk.Entry(frm, width=10); self.p_precio.insert(0,"0"); self.p_precio.grid(row=r, column=1, padx=6); r += 1
 
-        ttk.Label(frm, text="Código (obligatorio; si lo dejas vacío se autogenera):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
-        self.p_codigo = ttk.Entry(frm, width=14); self.p_codigo.grid(row=r, column=1, padx=6); r+=1
+        ttk.Label(frm, text="Código (obligatorio; si vacío, se autogenera):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
+        self.var_codigo = tk.StringVar()
+        self.p_codigo = ttk.Entry(frm, width=14, textvariable=self.var_codigo)
+        self.p_codigo.grid(row=r, column=1, padx=6); r += 1
+        self.var_codigo.trace_add("write", self._titulo_codigo)
 
-        ttk.Button(frm, text="Crear producto", command=self.crear_producto).grid(row=r, column=0, columnspan=2, pady=8); r+=1
+        ttk.Button(frm, text="Crear producto", command=self.crear_producto).grid(row=r, column=0, columnspan=2, pady=8); r += 1
 
-        cols=("nombre","categoria","unidad","vendible","precio","codigo")
+        cols = ("nombre","categoria","unidad","vendible","precio","codigo")
         self.tree = ttk.Treeview(frm, columns=cols, show="headings", height=14)
         headers = ["Nombre","Categoría","Unidad","Vendible","Precio","Código"]
-        widths = [160,120,80,80,90,120]
+        widths  = [160,120,80,80,90,120]
         for c,h,w in zip(cols,headers,widths):
             self.tree.heading(c, text=h); self.tree.column(c, width=w)
         self.tree.grid(row=r, column=0, columnspan=2, sticky="nsew", padx=6, pady=6)
         frm.grid_rowconfigure(r, weight=1); frm.grid_columnconfigure(1, weight=1)
+
+        ttk.Button(frm, text="Refrescar", command=self.refrescar).grid(row=r+1, column=0, columnspan=2, pady=6)
+
         self._toggle_campos_vendible()
         self.refrescar()
 
+    # Título (solo inicial en mayúscula)
+    def _titulo_nombre(self, *args):
+        v = self.var_nombre.get()
+        u = v.title()
+        if v != u:
+            self.var_nombre.set(u)
+
+    def _titulo_codigo(self, *args):
+        v = self.var_codigo.get()
+        u = v.title()
+        if v != u:
+            self.var_codigo.set(u)
+
     def _toggle_campos_vendible(self, *_):
-        cat = self.p_categoria.get().strip()
+        cat = self.p_categoria.get().strip().title()
         es_insumo = (cat == "Insumos")
         self.p_precio.config(state="disabled" if es_insumo else "normal")
         if es_insumo:
-            self.p_precio.delete(0, "end")
-            self.p_precio.insert(0, "0")
-        self.p_codigo.config(state="normal")
+            self.p_precio.delete(0, "end"); self.p_precio.insert(0, "0")
 
     def crear_producto(self):
         try:
-            nombre = self.p_nombre.get().strip()
-            categoria = self.p_categoria.get().strip()
-            unidad = self.p_unidad.get().strip()
-            precio = float(self.p_precio.get() or 0)
-            codigo = (self.p_codigo.get() or "").strip()
-            if not nombre: raise ValueError("Nombre obligatorio.")
+            nombre    = self.var_nombre.get().strip().title()
+            categoria = self.p_categoria.get().strip().title()
+            unidad    = self.p_unidad.get().strip().title()
+            precio    = float(self.p_precio.get() or 0)
+            codigo    = (self.var_codigo.get() or "").strip().title()
+
+            if not nombre:
+                raise ValueError("El nombre es obligatorio.")
+
             crear_producto(nombre, categoria, unidad, precio, codigo)
             self.refrescar()
             messagebox.showinfo("OK","Producto creado.")
@@ -137,9 +199,22 @@ class VentanaProductos(tk.Toplevel):
             messagebox.showerror("Error", str(e))
 
     def refrescar(self):
-        for i in self.tree.get_children(): self.tree.delete(i)
+        for i in self.tree.get_children():
+            self.tree.delete(i)
         for p in listar_productos():
-            self.tree.insert("", "end", values=(p["nombre"], p["categoria"], p["unidad"], "sí" if p["es_vendible"] else "no", f'{p["precio"]:.2f}', p.get("codigo","")))
+            self.tree.insert(
+                "",
+                "end",
+                values=(
+                    (p.get("nombre","") or "").title(),
+                    (p.get("categoria","") or "").title(),
+                    (p.get("unidad","") or "").title(),
+                    "Sí" if p.get("es_vendible") else "No",
+                    f'{float(p.get("precio",0)):.2f}',
+                    (p.get("codigo","") or "").title(),
+                ),
+            )
+
 
 # ---------- Recetas ----------
 class VentanaRecetas(tk.Toplevel):
