@@ -17,11 +17,12 @@ class VentanaProveedores(tk.Toplevel):
         ttk.Label(top, text="Nombre:").grid(row=0, column=0, sticky="w", padx=6, pady=4)
         ttk.Label(top, text="Teléfono (10 dígitos):").grid(row=1, column=0, sticky="w", padx=6, pady=4)
 
-        # nombre: fuerza mayúsculas al teclear
+        # nombre: Title Case al teclear
+        self._updating_nom = False
         self.var_nom = tk.StringVar()
         self.p_nom = ttk.Entry(top, width=30, textvariable=self.var_nom)
         self.p_nom.grid(row=0, column=1, padx=6, pady=4)
-        self.var_nom.trace_add("write", self._nombre_to_upper)
+        self.var_nom.trace_add("write", self._titlecase_all)
 
         self.p_tel = ttk.Entry(top, width=30); self.p_tel.grid(row=1, column=1, padx=6, pady=4)
 
@@ -36,21 +37,35 @@ class VentanaProveedores(tk.Toplevel):
         ttk.Button(frm, text="Refrescar", command=self.refrescar).pack(pady=6)
         self.refrescar()
 
-    def _nombre_to_upper(self, *args):
-        v = self.var_nom.get()
-        u = v.upper()
-        if v != u:
-            # evita bucle de trazas
-            self.var_nom.trace_remove("write", self._nombre_to_upper_id)
-            self.var_nom.set(u)
-            self._nombre_to_upper_id = self.var_nom.trace_add("write", self._nombre_to_upper)
+    # ---- Helpers para Title Case (maneja espacios, guiones y apóstrofes) ----
+    def _cap_piece(self, s: str) -> str:
+        return s[:1].upper() + s[1:].lower() if s else ""
 
-    # registra la traza correctamente
-    _nombre_to_upper_id = None
+    def _cap_word(self, w: str) -> str:
+        for sep in ("-", "'"):
+            if sep in w:
+                return sep.join(self._cap_piece(p) for p in w.split(sep))
+        return self._cap_piece(w)
+
+    def _titlecase_all(self, *args):
+        if self._updating_nom:
+            return
+        v = self.var_nom.get()
+        if v == "":
+            return
+        new = " ".join(self._cap_word(w) for w in v.split(" "))
+        if new != v:
+            self._updating_nom = True
+            pos = self.p_nom.index("insert")
+            self.var_nom.set(new)
+            self.p_nom.icursor(min(pos, len(new)))
+            self._updating_nom = False
 
     def add(self):
         try:
-            nombre = (self.var_nom.get().strip().upper())
+            # Normaliza nuevamente a Title Case por si vino pegado/externo
+            nombre_raw = self.var_nom.get().strip()
+            nombre = " ".join(self._cap_word(w) for w in nombre_raw.split(" "))
             tel_raw = self.p_tel.get().strip()
             telefono = "".join(ch for ch in tel_raw if ch.isdigit())
 
@@ -75,6 +90,7 @@ class VentanaProveedores(tk.Toplevel):
             self.tree.delete(i)
         for r in listar_proveedores():
             self.tree.insert("", "end", values=(r.get("nombre",""), r.get("telefono","")))
+
 
 
 # ---------- Cajeros ----------
@@ -650,14 +666,14 @@ class MainApp(tk.Tk):
         grid = ttk.Frame(cont); grid.pack(pady=10)
 
         botones = [
-            ("Productos",  lambda: VentanaProductos(self)),
+            ("Registro de Productos",  lambda: VentanaProductos(self)),
             ("Recetas",    lambda: VentanaRecetas(self)),
             ("Compras (Entradas)", lambda: VentanaCompras(self)),
             ("Producción (Lotes)", lambda: VentanaProduccion(self)),
             ("Ventas / Merma", lambda: VentanaVentas(self)),
             ("Inventario", lambda: VentanaInventario(self)),
             ("Reportes",   lambda: VentanaReportes(self)),
-            ("Proveedores", lambda: VentanaProveedores(self)),
+            ("Registro de Proveedores", lambda: VentanaProveedores(self)),
             ("Cajeros",     lambda: VentanaCajeros(self)),
         ]
         for i,(txt,cmd) in enumerate(botones):
