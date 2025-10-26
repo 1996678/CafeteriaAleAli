@@ -359,45 +359,93 @@ class VentanaCompras(tk.Toplevel):
 
         lf = ttk.LabelFrame(frm, text="Partidas (Producto, Cantidad, Costo TOTAL)")
         lf.pack(fill="both", expand=True, padx=2, pady=6)
+
         self.tree = ttk.Treeview(lf, columns=("producto","cantidad","costo_total"), show="headings", height=12)
         self.tree.heading("producto", text="Producto")
         self.tree.heading("cantidad", text="Cantidad (unidad declarada)")
         self.tree.heading("costo_total", text="Costo TOTAL")
-        self.tree.column("producto", width=260); self.tree.column("cantidad", width=180); self.tree.column("costo_total", width=140)
+        self.tree.column("producto", width=260)
+        self.tree.column("cantidad", width=180)
+        self.tree.column("costo_total", width=140)
         self.tree.pack(fill="both", expand=True, padx=6, pady=6)
 
+        # ----- Captura de partidas con títulos y unidad visible -----
         add = ttk.Frame(lf); add.pack(fill="x", padx=6, pady=6)
-        self.prod = ttk.Combobox(add, values=[p["nombre"] for p in listar_para_compras()], width=40, state="readonly"); self.prod.pack(side="left")
-        self.cant = ttk.Entry(add, width=10); self.cant.insert(0,"1"); self.cant.pack(side="left", padx=6)
-        self.costo_total = ttk.Entry(add, width=10); self.costo_total.insert(0,"0"); self.costo_total.pack(side="left", padx=6)
+
+        # Productos disponibles y mapa nombre -> unidad
+        productos = listar_para_compras()  # idealmente cada item: {"nombre": ..., "unidad" o "unidad_medida": ...}
+        self._unidades = {
+            p["nombre"]: (p.get("unidad_medida") or p.get("unidad") or "unidad")
+            for p in productos
+        }
+
+        # Producto (combobox)
+        self.prod = ttk.Combobox(add, values=[p["nombre"] for p in productos], width=40, state="readonly")
+        self.prod.pack(side="left")
+        self.prod.bind("<<ComboboxSelected>>", self._on_prod_change)
+
+        # Contenedor de Cantidad (con título) + etiqueta de unidad
+        qty_box = ttk.LabelFrame(add, text="Cantidad")
+        qty_box.pack(side="left", padx=8)
+        self.cant = ttk.Entry(qty_box, width=10)
+        self.cant.insert(0, "1")
+        self.cant.pack(side="left", padx=(6, 4), pady=4)
+        # Unidad visible a la derecha de la cantidad
+        self.lbl_unidad = ttk.Label(qty_box, text="unidad")
+        self.lbl_unidad.pack(side="left", padx=(2, 6))
+
+        # Contenedor de Costo TOTAL (con título)
+        cost_box = ttk.LabelFrame(add, text="Costo total")
+        cost_box.pack(side="left", padx=8)
+        self.costo_total = ttk.Entry(cost_box, width=10)
+        self.costo_total.insert(0, "0")
+        self.costo_total.pack(side="left", padx=6, pady=4)
+
         ttk.Button(add, text="Agregar partida", command=self.add).pack(side="left", padx=6)
 
         ttk.Button(frm, text="Registrar compra", command=self.registrar).pack(pady=8)
 
+        # Inicializa la unidad si hay un producto preseleccionado
+        if self.prod.get():
+            self._on_prod_change()
+
     def _refrescar_provs(self):
         self.cb_prov["values"] = [p["nombre"] for p in listar_proveedores()]
 
+    def _on_prod_change(self, *args):
+        nombre = (self.prod.get() or "").strip()
+        unidad = self._unidades.get(nombre, "unidad")
+        self.lbl_unidad.config(text=unidad)
+
     def add(self):
         p = self.prod.get().strip()
-        try: c = float(self.cant.get()); ct = float(self.costo_total.get())
-        except: messagebox.showerror("Error","Cantidad o costo inválidos"); return
-        if not p: return
-        self.tree.insert("", "end", values=(p,c,ct))
+        try:
+            c = float(self.cant.get())
+            ct = float(self.costo_total.get())
+        except:
+            messagebox.showerror("Error", "Cantidad o costo inválidos")
+            return
+        if not p:
+            return
+        self.tree.insert("", "end", values=(p, c, ct))
 
     def registrar(self):
         items = []
         for iid in self.tree.get_children():
-            p,c,ct = self.tree.item(iid,"values")
+            p, c, ct = self.tree.item(iid, "values")
             items.append((p, float(c), float(ct)))
         if not items:
-            messagebox.showerror("Error","Agrega partidas"); return
+            messagebox.showerror("Error", "Agrega partidas")
+            return
         try:
             prov = self.cb_prov.get().strip() or None
             cid = registrar_compra(items, proveedor=prov)
-            for iid in self.tree.get_children(): self.tree.delete(iid)
+            for iid in self.tree.get_children():
+                self.tree.delete(iid)
             messagebox.showinfo("OK", f"Compra registrada #{cid}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
+
 
 # ---------- Ventas ----------
 class VentanaVentas(tk.Toplevel):
