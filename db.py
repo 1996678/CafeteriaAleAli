@@ -2,6 +2,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
+from datetime import datetime
 
 DB_PATH = Path(__file__).resolve().parent / "datos.db"
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
@@ -10,6 +11,11 @@ VENTA = "VENTA"
 MERMA = "MERMA"
 
 CATS_FIJAS = ("Insumos", "Elaborados", "Productos")
+
+
+def _now_str() -> str:
+    # Fecha/hora local de la computadora, formato estable para SQLite
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def conectar():
@@ -61,13 +67,7 @@ def _migraciones(conn):
             activo INTEGER NOT NULL DEFAULT 1
         )"""
     )
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS cajeros(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT UNIQUE NOT NULL,
-            activo INTEGER NOT NULL DEFAULT 1
-        )"""
-    )
+    # Tabla 'cajeros' puede permanecer o ignorarse; ya no se usa en la UI.
 
     cur = conn.execute("PRAGMA table_info(compras)")
     cols = {r["name"]: r for r in cur.fetchall()}
@@ -75,6 +75,18 @@ def _migraciones(conn):
         conn.execute(
             "ALTER TABLE compras ADD COLUMN proveedor_id INTEGER REFERENCES proveedores(id)"
         )
+
+    # Normalizar unidades de versiones anteriores
+    conn.execute("UPDATE productos SET unidad='Pieza' WHERE unidad='pz'")
+    conn.execute("UPDATE productos SET unidad='Gramo' WHERE unidad='g'")
+    conn.execute("UPDATE productos SET unidad='Kilo'  WHERE unidad='kg'")
+
+    # Índices útiles
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_prod_cat ON productos(categoria_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_prod_suc ON inventario(producto_id, sucursal_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mvto_prod_suc ON movimientos_inventario(producto_id, sucursal_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ventas_tipo_fecha ON ventas(tipo, creado_en)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vdet_venta ON ventas_detalle(venta_id)")
 
     _autofill_codigos(conn)
 
@@ -152,21 +164,6 @@ def listar_proveedores() -> List[Dict]:
         return [dict(r) for r in rows]
 
 
-def crear_cajero(nombre: str):
-    if not nombre:
-        raise ValueError("Nombre de cajero obligatorio.")
-    with tx() as conn:
-        conn.execute("INSERT INTO cajeros(nombre) VALUES (?)", (nombre,))
-
-
-def listar_cajeros() -> List[Dict]:
-    with conectar() as conn:
-        rows = conn.execute(
-            "SELECT id, nombre FROM cajeros WHERE activo=1 ORDER BY nombre"
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
 # ------- Productos -------
 def crear_producto(
     nombre: str,
@@ -236,7 +233,7 @@ def listar_vendibles() -> List[Dict]:
 def listar_para_compras() -> List[Dict]:
     with conectar() as conn:
         rows = conn.execute(
-            """SELECT p.id, p.nombre
+            """SELECT p.id, p.nombre, p.unidad
                FROM productos p
                JOIN categorias c ON c.id=p.categoria_id
                WHERE c.nombre IN ('Insumos','Productos')
@@ -332,6 +329,22 @@ def inventario_actual() -> List[Dict]:
         return arr
 
 
+def _insert_mov_inv(conn, producto_id: int, sucursal_id: int, cantidad_base: float, motivo: str, ref_tabla: str, ref_id: Optional[int], nota: str):
+    # Inserta movimiento con fecha local si la columna existe
+    if _col_exists(conn, "movimientos_inventario", "creado_en"):
+        conn.execute(
+            """INSERT INTO movimientos_inventario(producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota, creado_en)
+               VALUES(?,?,?,?,?,?,?,?)""",
+            (producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota, _now_str()),
+        )
+    else:
+        conn.execute(
+            """INSERT INTO movimientos_inventario(producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota)
+               VALUES(?,?,?,?,?,?,?)""",
+            (producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota),
+        )
+
+
 def ajustar(producto: str, delta: float, nota: str = "Ajuste"):
     with tx() as conn:
         pid = _id_por_nombre(conn, "productos", producto)
@@ -349,11 +362,7 @@ def ajustar(producto: str, delta: float, nota: str = "Ajuste"):
             "UPDATE inventario SET cantidad_base = cantidad_base + ? WHERE producto_id=? AND sucursal_id=?",
             (base, pid, suc_id),
         )
-        conn.execute(
-            """INSERT INTO movimientos_inventario(producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota)
-               VALUES(?,?,?,?,?,?,?)""",
-            (pid, suc_id, base, "AJUSTE", "inventario", None, nota),
-        )
+        _insert_mov_inv(conn, pid, suc_id, base, "AJUSTE", "inventario", None, nota)
 
 
 # ------- Compras -------
@@ -377,10 +386,17 @@ def registrar_compra(
                 raise ValueError(f"Proveedor '{proveedor}' no existe o está inactivo")
             proveedor_id = prow["id"]
 
-        cur = conn.execute(
-            "INSERT INTO compras(sucursal_id, total, proveedor_id) VALUES (?,?,?)",
-            (suc_id, 0, proveedor_id),
-        )
+        # Inserta compra con fecha local si la columna existe
+        if _col_exists(conn, "compras", "creado_en"):
+            cur = conn.execute(
+                "INSERT INTO compras(sucursal_id, total, proveedor_id, creado_en) VALUES (?,?,?,?)",
+                (suc_id, 0, proveedor_id, _now_str()),
+            )
+        else:
+            cur = conn.execute(
+                "INSERT INTO compras(sucursal_id, total, proveedor_id) VALUES (?,?,?)",
+                (suc_id, 0, proveedor_id),
+            )
         compra_id = cur.lastrowid
 
         total_compra = 0.0
@@ -412,11 +428,7 @@ def registrar_compra(
                 "UPDATE inventario SET cantidad_base = cantidad_base + ? WHERE producto_id=? AND sucursal_id=?",
                 (base, pid, suc_id),
             )
-            conn.execute(
-                """INSERT INTO movimientos_inventario(producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota)
-                   VALUES(?,?,?,?,?,?,?)""",
-                (pid, suc_id, base, "COMPRA", "compras", compra_id, nota),
-            )
+            _insert_mov_inv(conn, pid, suc_id, base, "COMPRA", "compras", compra_id, nota)
             total_compra += costo_total
 
         conn.execute("UPDATE compras SET total=? WHERE id=?", (total_compra, compra_id))
@@ -448,6 +460,8 @@ def registrar_produccion(producto_menu: str, cantidad: float, nota: str = "") ->
         ).fetchall()
         if not receta:
             raise ValueError("El producto no tiene receta definida")
+
+        # Validación stock
         for row in receta:
             comp_id, por_u = row["componente_producto_id"], row["cantidad_base"]
             req = por_u * cantidad
@@ -457,6 +471,8 @@ def registrar_produccion(producto_menu: str, cantidad: float, nota: str = "") ->
             ).fetchone()
             if not cur or cur["cantidad_base"] < req:
                 raise ValueError("Stock insuficiente de componentes para producir")
+
+        # Consumir componentes
         for row in receta:
             comp_id, por_u = row["componente_producto_id"], row["cantidad_base"]
             req = por_u * cantidad
@@ -464,26 +480,27 @@ def registrar_produccion(producto_menu: str, cantidad: float, nota: str = "") ->
                 "UPDATE inventario SET cantidad_base = cantidad_base - ? WHERE producto_id=? AND sucursal_id=?",
                 (req, comp_id, suc_id),
             )
-            conn.execute(
-                """INSERT INTO movimientos_inventario(producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota)
-                   VALUES(?,?,?,?,?,?,?)""",
-                (comp_id, suc_id, -req, "PRODUCCION", "producciones", None, nota),
-            )
+            _insert_mov_inv(conn, comp_id, suc_id, -req, "PRODUCCION", "producciones", None, nota)
+
+        # Abonar elaborado
         base_u = a_base(unidad_menu, cantidad)
         conn.execute(
             "UPDATE inventario SET cantidad_base = cantidad_base + ? WHERE producto_id=? AND sucursal_id=?",
             (base_u, menu_id, suc_id),
         )
-        cur = conn.execute(
-            "INSERT INTO producciones(producto_id, sucursal_id, cantidad, nota) VALUES(?,?,?,?)",
-            (menu_id, suc_id, cantidad, nota),
-        )
+        # Producción con fecha local si existe la columna
+        if _col_exists(conn, "producciones", "creado_en"):
+            cur = conn.execute(
+                "INSERT INTO producciones(producto_id, sucursal_id, cantidad, nota, creado_en) VALUES(?,?,?,?,?)",
+                (menu_id, suc_id, cantidad, nota, _now_str()),
+            )
+        else:
+            cur = conn.execute(
+                "INSERT INTO producciones(producto_id, sucursal_id, cantidad, nota) VALUES(?,?,?,?)",
+                (menu_id, suc_id, cantidad, nota),
+            )
         prod_id = cur.lastrowid
-        conn.execute(
-            """INSERT INTO movimientos_inventario(producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota)
-               VALUES(?,?,?,?,?,?,?)""",
-            (menu_id, suc_id, base_u, "PRODUCCION", "producciones", prod_id, nota),
-        )
+        _insert_mov_inv(conn, menu_id, suc_id, base_u, "PRODUCCION", "producciones", prod_id, nota)
         return prod_id
 
 
@@ -498,11 +515,20 @@ def registrar_venta(
         if not r:
             raise ValueError("No hay sucursal registrada.")
         suc_id = r["id"]
-        cur = conn.execute(
-            "INSERT INTO ventas(tipo, sucursal_id, cajero) VALUES (?,?,?)",
-            (tipo, suc_id, cajero),
-        )
+
+        # Insertar venta con fecha local si existe la columna
+        if _col_exists(conn, "ventas", "creado_en"):
+            cur = conn.execute(
+                "INSERT INTO ventas(tipo, sucursal_id, cajero, creado_en) VALUES (?,?,?,?)",
+                (tipo, suc_id, None, _now_str()),
+            )
+        else:
+            cur = conn.execute(
+                "INSERT INTO ventas(tipo, sucursal_id, cajero) VALUES (?,?,?)",
+                (tipo, suc_id, None),
+            )
         venta_id = cur.lastrowid
+
         total = 0.0
         for pid, cant in items:
             prod = conn.execute(
@@ -513,14 +539,20 @@ def registrar_venta(
                 raise ValueError("Producto no existe")
             if prod["es_vendible"] != 1:
                 raise ValueError("Solo se venden productos vendibles en esta ventana")
-            precio_unit = 0.0 if tipo == MERMA else float(prod["precio"])
-            subtotal = precio_unit * cant
+
+            precio_catalogo = float(prod["precio"])
+            precio_unit = 0.0 if tipo == MERMA else precio_catalogo
+            subtotal = precio_unit * cant  # MERMA => 0
+
+            # Guardamos precio histórico en el detalle SIEMPRE (en MERMA, el de catálogo del día)
             conn.execute(
                 """INSERT INTO ventas_detalle(venta_id, producto_id, cantidad, precio_unitario, subtotal)
                    VALUES(?,?,?,?,?)""",
-                (venta_id, prod["id"], cant, precio_unit, subtotal),
+                (venta_id, prod["id"], cant, (precio_catalogo if tipo == MERMA else precio_unit), subtotal),
             )
             total += subtotal
+
+            # Descontar stock del producto vendido (elaborado/producto)
             base = a_base(prod["unidad"], cant)
             curq = conn.execute(
                 "SELECT cantidad_base FROM inventario WHERE producto_id=? AND sucursal_id=?",
@@ -532,11 +564,8 @@ def registrar_venta(
                 "UPDATE inventario SET cantidad_base = cantidad_base - ? WHERE producto_id=? AND sucursal_id=?",
                 (base, prod["id"], suc_id),
             )
-            conn.execute(
-                """INSERT INTO movimientos_inventario(producto_id, sucursal_id, cantidad_base, motivo, ref_tabla, ref_id, nota)
-                   VALUES(?,?,?,?,?,?,?)""",
-                (prod["id"], suc_id, -base, tipo, "ventas", venta_id, nota),
-            )
+            _insert_mov_inv(conn, prod["id"], suc_id, -base, tipo, "ventas", venta_id, nota)
+
         conn.execute("UPDATE ventas SET total=? WHERE id=?", (total, venta_id))
         return venta_id
 
@@ -564,12 +593,6 @@ def reporte_ventas_detallado(desde: str = None, hasta: str = None):
 
 
 def reporte_merma_detallado(desde: str = None, hasta: str = None):
-    """
-    Muestra: fecha, producto, cantidad, precio_venta (precio en catálogo),
-    pérdida = precio_venta * cantidad.
-    Nota: usamos el precio ACTUAL del producto; si el precio cambió después,
-    este cálculo será una estimación.
-    """
     params = []
     where = ["v.tipo='MERMA'"]
     if desde:
@@ -582,13 +605,44 @@ def reporte_merma_detallado(desde: str = None, hasta: str = None):
     sql = f"""SELECT v.creado_en as fecha,
                      p.nombre as producto,
                      d.cantidad,
-                     p.precio as precio_venta,
-                     (p.precio * d.cantidad) as perdida
+                     d.precio_unitario as precio_venta,
+                     (d.precio_unitario * d.cantidad) as perdida
               FROM ventas v
               JOIN ventas_detalle d ON d.venta_id=v.id
               JOIN productos p ON p.id=d.producto_id
               {where_sql}
               ORDER BY v.creado_en, p.nombre"""
+    with conectar() as conn:
+        return [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
+
+
+def reporte_compras_detallado(desde: str = None, hasta: str = None):
+    """
+    Reporte de compras: fecha, proveedor, producto, cantidad, costo unitario, costo total.
+    """
+    params = []
+    where = []
+    if desde:
+        where.append("date(c.creado_en)>=date(?)")
+        params.append(desde)
+    if hasta:
+        where.append("date(c.creado_en)<=date(?)")
+        params.append(hasta)
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    sql = f"""
+        SELECT c.creado_en as fecha,
+               IFNULL(pr.nombre,'') as proveedor,
+               p.nombre as producto,
+               cd.cantidad,
+               cd.costo_unitario,
+               cd.costo_total
+        FROM compras c
+        JOIN compras_detalle cd ON cd.compra_id=c.id
+        JOIN productos p ON p.id=cd.producto_id
+        LEFT JOIN proveedores pr ON pr.id=c.proveedor_id
+        {where_sql}
+        ORDER BY c.creado_en, pr.nombre, p.nombre
+    """
     with conectar() as conn:
         return [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
 
