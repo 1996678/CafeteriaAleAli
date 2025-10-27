@@ -369,32 +369,27 @@ class VentanaCompras(tk.Toplevel):
         self.tree.column("costo_total", width=140)
         self.tree.pack(fill="both", expand=True, padx=6, pady=6)
 
-        # ----- Captura de partidas con títulos y unidad visible -----
         add = ttk.Frame(lf); add.pack(fill="x", padx=6, pady=6)
 
-        # Productos disponibles y mapa nombre -> unidad
-        productos = listar_para_compras()  # idealmente cada item: {"nombre": ..., "unidad" o "unidad_medida": ...}
+        productos = listar_para_compras() 
         self._unidades = {
             p["nombre"]: (p.get("unidad_medida") or p.get("unidad") or "unidad")
             for p in productos
         }
 
-        # Producto (combobox)
         self.prod = ttk.Combobox(add, values=[p["nombre"] for p in productos], width=40, state="readonly")
         self.prod.pack(side="left")
         self.prod.bind("<<ComboboxSelected>>", self._on_prod_change)
 
-        # Contenedor de Cantidad (con título) + etiqueta de unidad
         qty_box = ttk.LabelFrame(add, text="Cantidad")
         qty_box.pack(side="left", padx=8)
         self.cant = ttk.Entry(qty_box, width=10)
         self.cant.insert(0, "1")
+        
         self.cant.pack(side="left", padx=(6, 4), pady=4)
-        # Unidad visible a la derecha de la cantidad
         self.lbl_unidad = ttk.Label(qty_box, text="unidad")
         self.lbl_unidad.pack(side="left", padx=(2, 6))
 
-        # Contenedor de Costo TOTAL (con título)
         cost_box = ttk.LabelFrame(add, text="Costo total")
         cost_box.pack(side="left", padx=8)
         self.costo_total = ttk.Entry(cost_box, width=10)
@@ -405,7 +400,6 @@ class VentanaCompras(tk.Toplevel):
 
         ttk.Button(frm, text="Registrar compra", command=self.registrar).pack(pady=8)
 
-        # Inicializa la unidad si hay un producto preseleccionado
         if self.prod.get():
             self._on_prod_change()
 
@@ -670,7 +664,6 @@ class VentanaReportes(tk.Toplevel):
                 w.writerow(self._headers_actuales)
                 for iid in self.tree.get_children():
                     vals = self.tree.item(iid, "values")
-                    # Solo exportar tantas columnas como headers visibles
                     w.writerow(list(vals)[:len(self._headers_actuales)])
             messagebox.showinfo("OK", f"CSV guardado en:\n{ruta}")
         except Exception as e:
