@@ -616,24 +616,27 @@ def reporte_merma_detallado(desde: str = None, hasta: str = None):
         return [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
 
 
-def reporte_compras_detallado(desde: str = None, hasta: str = None):
+def reporte_compras_detallado(desde: str = None, hasta: str = None, proveedor: str = None):
     """
-    Reporte de compras: fecha, proveedor, producto, cantidad, costo unitario, costo total.
+    Reporte de compras: fecha, proveedor, producto, cantidad, UNIDAD, costo unitario, costo total.
+    Permite filtrar por proveedor (nombre exacto).
     """
     params = []
     where = []
     if desde:
-        where.append("date(c.creado_en)>=date(?)")
-        params.append(desde)
+        where.append("date(c.creado_en)>=date(?)"); params.append(desde)
     if hasta:
-        where.append("date(c.creado_en)<=date(?)")
-        params.append(hasta)
+        where.append("date(c.creado_en)<=date(?)"); params.append(hasta)
+    if proveedor:
+        where.append("IFNULL(pr.nombre,'') = ?"); params.append(proveedor)
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
     sql = f"""
         SELECT c.creado_en as fecha,
                IFNULL(pr.nombre,'') as proveedor,
                p.nombre as producto,
                cd.cantidad,
+               p.unidad as unidad,
                cd.costo_unitario,
                cd.costo_total
         FROM compras c
@@ -664,3 +667,23 @@ def top_productos(lim: int = 10, desde: str = None, hasta: str = None):
     params.append(lim)
     with conectar() as conn:
         return [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
+
+def stock_disponible_producto(producto_id: int) -> float:
+    """Devuelve el stock disponible convertido a la unidad del producto (Pieza/Gramo/Kilo)."""
+    with conectar() as conn:
+        r = conn.execute(
+            """
+            SELECT p.unidad, IFNULL(i.cantidad_base, 0) AS base
+            FROM productos p
+            LEFT JOIN inventario i ON i.producto_id = p.id
+            JOIN sucursales s ON 1=1      
+            WHERE p.id=? AND (i.sucursal_id = s.id OR i.sucursal_id IS NULL)
+            LIMIT 1
+            """,
+            (producto_id,)
+        ).fetchone()
+        if not r:
+            return 0.0
+        return desde_base(r["unidad"], r["base"])
+
+

@@ -404,7 +404,7 @@ class VentanaCompras(tk.Toplevel):
 class VentanaVentas(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
-        self.title("Ventas / Merma (Código o Búsqueda)")
+        self.title("Ventas / Merma (Búsqueda)")
         frm = ttk.Frame(self); frm.pack(fill="both", expand=True, padx=8, pady=8)
 
         row = ttk.Frame(frm); row.pack(fill="x", padx=2, pady=2)
@@ -416,14 +416,6 @@ class VentanaVentas(tk.Toplevel):
         self.nota = ttk.Entry(row, width=30); self.nota.pack(side="left")
 
         ttk.Button(row, text="Registrar ticket", command=self.registrar).pack(side="right", padx=6)
-
-        codigo_box = ttk.LabelFrame(frm, text="Agregar por CÓDIGO")
-        codigo_box.pack(fill="x", padx=6, pady=6)
-        ttk.Label(codigo_box, text="Código:").pack(side="left")
-        self.cod = ttk.Entry(codigo_box, width=14); self.cod.pack(side="left", padx=6)
-        ttk.Label(codigo_box, text="Cantidad (pz):").pack(side="left")
-        self.cant_cod = ttk.Entry(codigo_box, width=8); self.cant_cod.insert(0,"1"); self.cant_cod.pack(side="left", padx=6)
-        ttk.Button(codigo_box, text="Agregar", command=self.add_codigo).pack(side="left", padx=6)
 
         busc_box = ttk.LabelFrame(frm, text="Buscar por código o descripción")
         busc_box.pack(fill="both", padx=6, pady=6)
@@ -441,7 +433,6 @@ class VentanaVentas(tk.Toplevel):
             self.result.heading(c, text=t); self.result.column(c, width=w)
         self.result.pack(fill="both", expand=True, padx=6, pady=6)
 
-        # Reducido a height=9 para que no tape el botón “Borrar seleccionado”
         cols=("codigo","producto","cantidad","precio","subtotal")
         self.tree = ttk.Treeview(frm, columns=cols, show="headings", height=9)
         for c,t,w in [("codigo","Código",100),("producto","Producto",240),("cantidad","Cantidad",90),("precio","Precio unit.",100),("subtotal","Subtotal",100)]:
@@ -452,45 +443,93 @@ class VentanaVentas(tk.Toplevel):
         ttk.Label(frm, text="Solo productos vendibles (Elaborados y Productos); los Insumos NO se venden aquí.").pack(anchor="w", padx=6)
         ttk.Button(actions, text="Borrar seleccionado", command=self.borrar_seleccionado).pack(side="left", padx=4)
 
+        self.q.bind("<Return>", lambda e: self.buscar())
+        self.cant_busq.bind("<Return>", lambda e: self.add_seleccion())
+        self.result.bind("<Double-1>", lambda e: self.add_seleccion())
+
+        self.q.focus_set()
+
         self.items_by_iid = {}
 
+        
+   
+
+    
+
+    def add_codigo(self):
+        codigo = self.cod.get().strip()
+        try:
+            cant = float(self.cant_cod.get())
+        except:
+            messagebox.showerror("Error", "Cantidad inválida"); return
+        if not codigo:
+            messagebox.showerror("Error", "Ingresa un código"); return
+
+        r = buscar_vendible_por_codigo(codigo)
+        if not r:
+            messagebox.showerror("No encontrado", "No hay producto vendible con ese código."); return
+
+        # Validar stock antes de agregar al ticket
+        disp = stock_disponible_producto(r["id"])
+        if cant > disp:
+            messagebox.showerror("Stock insuficiente",
+                                f"Disponible de '{r['nombre']}': {disp:.3f}.\nNo se agregó al ticket.")
+            return
+
+        self._insert_ticket_row(r["id"], r["nombre"], r["codigo"], r["precio"], cant)
+        self.cod.delete(0, "end")
+        self.cant_cod.delete(0, "end"); self.cant_cod.insert(0, "1")
+
+    
+    def add_seleccion(self):
+        sel = self.result.selection()
+        if not sel:
+            messagebox.showerror("Error", "Selecciona un producto de la lista"); return
+        iid = sel[0]
+        codigo, nombre, _ = self.result.item(iid, "values")
+        try:
+            cant = float(self.cant_busq.get())
+        except:
+            messagebox.showerror("Error", "Cantidad inválida"); return
+
+        r = buscar_vendible_por_codigo(codigo)
+        if not r:
+            messagebox.showerror("Error", "El código seleccionado ya no es válido"); return
+
+        # Validar stock antes de agregar al ticket
+        disp = stock_disponible_producto(r["id"])
+        if cant > disp:
+            messagebox.showerror("Stock insuficiente",
+                                f"Disponible de '{r['nombre']}': {disp:.3f}.\nNo se agregó al ticket.")
+            return
+
+        self._insert_ticket_row(r["id"], nombre, r["codigo"], r["precio"], cant)
+
+    
     def _insert_ticket_row(self, pid, nombre, codigo, precio, cantidad):
         subtotal = (precio * cantidad) if self.tipo.get()=="VENTA" else 0.0
         iid = self.tree.insert("", "end", values=(codigo, nombre, cantidad, f"{precio:.2f}", f"{subtotal:.2f}"))
         self.items_by_iid[iid] = (pid, cantidad, precio, codigo, nombre)
 
-    def add_codigo(self):
-        codigo = self.cod.get().strip()
-        try: cant = float(self.cant_cod.get())
-        except: messagebox.showerror("Error","Cantidad inválida"); return
-        if not codigo:
-            messagebox.showerror("Error","Ingresa un código"); return
-        r = buscar_vendible_por_codigo(codigo)
-        if not r:
-            messagebox.showerror("No encontrado","No hay producto vendible con ese código."); return
-        self._insert_ticket_row(r["id"], r["nombre"], r["codigo"], r["precio"], cant)
-        self.cod.delete(0,"end"); self.cant_cod.delete(0,"end"); self.cant_cod.insert(0,"1")
 
     def buscar(self):
         q = self.q.get().strip()
-        for i in self.result.get_children(): self.result.delete(i)
-        if not q: return
+        for i in self.result.get_children():
+            self.result.delete(i)
+        if not q:
+            return
         rows = buscar_vendibles_por_texto(q)
         for r in rows:
             self.result.insert("", "end", values=(r["codigo"] or "", r["nombre"], f'{r["precio"]:.2f}'))
 
-    def add_seleccion(self):
-        sel = self.result.selection()
-        if not sel:
-            messagebox.showerror("Error","Selecciona un producto de la lista"); return
-        iid = sel[0]
-        codigo, nombre, _ = self.result.item(iid,"values")
-        try: cant = float(self.cant_busq.get())
-        except: messagebox.showerror("Error","Cantidad inválida"); return
-        r = buscar_vendible_por_codigo(codigo)
-        if not r:
-            messagebox.showerror("Error","El código seleccionado ya no es válido"); return
-        self._insert_ticket_row(r["id"], nombre, r["codigo"], r["precio"], cant)
+        # Autoseleccionar el primer resultado para agilizar “Agregar seleccionado”
+        kids = self.result.get_children()
+        if kids:
+            self.result.selection_set(kids[0])
+            self.result.focus(kids[0])
+            self.result.see(kids[0])
+
+    
 
     def borrar_seleccionado(self):
         sel = self.tree.selection()
@@ -501,19 +540,40 @@ class VentanaVentas(tk.Toplevel):
             if iid in self.items_by_iid:
                 del self.items_by_iid[iid]
             self.tree.delete(iid)
-
+            
     def registrar(self):
         if not self.items_by_iid:
-            messagebox.showerror("Error","Agrega partidas"); return
-        tipo = self.tipo.get(); nota = self.nota.get().strip() or ""
-        payload = [(pid, cant) for (pid, cant, precio, codigo, nombre) in self.items_by_iid.values()]
+            messagebox.showerror("Error", "Agrega partidas")
+            return
+
+        tipo = self.tipo.get()
+        nota = self.nota.get().strip() or ""
+
+        # Revalidar stock de todo el ticket antes de registrar
+        faltantes = []
+        for (pid, cant, _precio, _codigo, nombre) in self.items_by_iid.values():
+            disp = stock_disponible_producto(pid)  # <-- asegúrate de tener esta función en db.py
+            if cant > disp:
+                faltantes.append((nombre, disp, cant))
+
+        if faltantes:
+            msg = "Stock insuficiente en:\n" + "\n".join(
+                f"• {n}: disponible {d:.3f}, solicitado {c:.3f}" for (n, d, c) in faltantes
+            )
+            messagebox.showerror("Stock insuficiente", msg)
+            return
+
+        # Si todo ok, arma payload y registra
+        payload = [(pid, cant) for (pid, cant, _precio, _codigo, _nombre) in self.items_by_iid.values()]
         try:
-            vid = registrar_venta(tipo, payload, None, nota)
+            vid = registrar_venta(tipo, payload, None, nota)  # cajero=None
             self.items_by_iid.clear()
-            for iid in self.tree.get_children(): self.tree.delete(iid)
+            for iid in self.tree.get_children():
+                self.tree.delete(iid)
             messagebox.showinfo("OK", f"{'Merma' if tipo=='MERMA' else 'Venta'} registrada #{vid}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
+
 
 
 # ---------- Inventario ----------
@@ -548,6 +608,19 @@ class VentanaReportes(tk.Toplevel):
         top = ttk.Frame(self); top.pack(fill="x", padx=8, pady=6)
         ttk.Label(top, text="Desde (YYYY-MM-DD):").pack(side="left"); self.desde = ttk.Entry(top, width=12); self.desde.pack(side="left", padx=4)
         ttk.Label(top, text="Hasta (YYYY-MM-DD):").pack(side="left"); self.hasta = ttk.Entry(top, width=12); self.hasta.pack(side="left", padx=4)
+        ttk.Label(top, text="Proveedor:").pack(side="left", padx=(10,2))
+        self.cb_prov = ttk.Combobox(
+            top, values=[], width=22, state="disabled"
+        )
+        self.cb_prov.pack(side="left")
+
+        self.btn_prov_upd = ttk.Button(top, text="Actualizar", command=self._aplicar_filtro_proveedor, state="disabled")
+        self.btn_prov_upd.pack(side="left", padx=4)
+        self.cb_prov.bind("<<ComboboxSelected>>", lambda e: self._aplicar_filtro_proveedor())
+
+        self.btn_prov_clear = ttk.Button(top, text="Limpiar", command=self._limpiar_prov, state="disabled")
+        self.btn_prov_clear.pack(side="left", padx=2)
+
 
         btns = ttk.Frame(self); btns.pack(fill="x", padx=8, pady=4)
         ttk.Button(btns, text="Ventas DETALLADO", command=self.rp_ventas_det).pack(side="left", padx=4)
@@ -556,29 +629,75 @@ class VentanaReportes(tk.Toplevel):
         ttk.Button(btns, text="Top productos", command=self.rp_top).pack(side="left", padx=4)
         ttk.Button(btns, text="Exportar CSV", command=self.exportar_csv).pack(side="right", padx=4)
 
-        cols=("c1","c2","c3","c4","c5","c6")
+        cols = ("c1","c2","c3","c4","c5","c6","c7") 
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
         for c in cols:
-            self.tree.heading(c, text=c); self.tree.column(c, width=160)
+            self.tree.heading(c, text=c)
+            self.tree.column(c, width=160)
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
         self.tree.tag_configure("total", font=("Segoe UI", 10, "bold"), background="#3c3c3c")
         self._headers_actuales = []  
 
     def _clear(self, headers):
         self._headers_actuales = headers[:]
-        for i in self.tree.get_children(): self.tree.delete(i)
-        for i,h in enumerate(headers):
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+
+        total_cols = len(self.tree["columns"])  
+        for i, h in enumerate(headers):
             col = f"c{i+1}"
             self.tree.heading(col, text=h)
-            self.tree.column(col, width=220 if i==1 else 160)
-        for j in range(len(headers), 6):
+            self.tree.column(col, width=220 if i == 1 else 160)
+
+        for j in range(len(headers), total_cols):
             col = f"c{j+1}"
             self.tree.heading(col, text="")
             self.tree.column(col, width=0)
+    
+    def _aplicar_filtro_proveedor(self):
+        # Solo actúa en Compras
+        if str(self.cb_prov.cget("state")) == "disabled":
+            return
+        self.rp_compras_det()
+    
+    def _set_prov_filter_active(self, active: bool):
+        """Activa/desactiva el filtro de proveedor (solo compras)."""
+        if active:
+            self.cb_prov.config(state="readonly")
+            self.btn_prov_upd.config(state="normal")
+            self.btn_prov_clear.config(state="normal")
+            if not self.cb_prov["values"]:
+                self._refrescar_prov()
+            if not self.cb_prov.get():
+                self.cb_prov.set("(Todos)")
+        else:
+            self.cb_prov.config(state="disabled")
+            self.btn_prov_upd.config(state="disabled")
+            self.btn_prov_clear.config(state="disabled")
+
+    def _refrescar_prov(self):
+        nombres = [p["nombre"] for p in listar_proveedores()]
+        actual = self.cb_prov.get().strip()
+        vals = ["(Todos)"] + nombres
+        self.cb_prov["values"] = vals
+        # Mantén selección si sigue existiendo; si no, pon (Todos)
+        if actual in vals:
+            self.cb_prov.set(actual)
+        else:
+            self.cb_prov.set("(Todos)")
+
+    def _limpiar_prov(self):
+        if str(self.cb_prov.cget("state")) != "disabled":
+            self.cb_prov.set("(Todos)")
+            self.rp_compras_det()
+
+
 
     def rp_ventas_det(self):
+        self._set_prov_filter_active(False)
         d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
         self._clear(["Fecha","Producto","Cantidad","Precio","Costo unit.","Total"])
+        
         tot_cant = 0.0
         tot_total = 0.0
         try:
@@ -606,6 +725,7 @@ class VentanaReportes(tk.Toplevel):
             messagebox.showerror("Error", str(e))
 
     def rp_merma_det(self):
+        self._set_prov_filter_active(False)
         d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
         self._clear(["Fecha","Producto","Unidades","Precio (venta)","Pérdida"])
         tot_unidades = 0.0
@@ -633,32 +753,41 @@ class VentanaReportes(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+
     def rp_compras_det(self):
-        d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
-        self._clear(["Fecha","Proveedor","Producto","Cantidad","Costo unit.","Costo total"])
-        tot_cant = 0.0
-        tot_ct   = 0.0
+        self._set_prov_filter_active(True)   # <-- activo SOLO aquí
+        d = self.desde.get().strip() or None
+        h = self.hasta.get().strip() or None
+        raw = (self.cb_prov.get().strip() if hasattr(self, "cb_prov") else "")
+        prov = None if (raw == "" or raw == "(Todos)") else raw
+
+        # 7 columnas: Fecha | Proveedor | Producto | Cantidad | Unidad | Costo unit. | Costo total
+        self._clear(["Fecha","Proveedor","Producto","Cantidad","Unidad","Costo unit.","Costo total"])
+
+        tot_ct = 0.0
         try:
-            rows = reporte_compras_detallado(d,h)
+            rows = reporte_compras_detallado(d, h, prov)
             for r in rows:
-                q = float(r["cantidad"] or 0)
+                q  = float(r["cantidad"] or 0)
                 cu = float(r["costo_unitario"] or 0)
                 ct = float(r["costo_total"] or 0)
-                tot_cant += q
-                tot_ct   += ct
+                tot_ct += ct
                 self.tree.insert(
                     "", "end",
-                    values=(r["fecha"], r["proveedor"], r["producto"], q, f'{cu:.2f}', f'{ct:.2f}')
+                    values=(r["fecha"], r["proveedor"], r["producto"], q, r["unidad"], f"{cu:.2f}", f"{ct:.2f}")
                 )
+            # Fila TOTAL (solo importe) — OJO: comillas y paréntesis cerrados correctamente
             self.tree.insert(
                 "", "end",
-                values=("", "TOTAL:", "", f'{tot_cant:.2f}', "", f'{tot_ct:.2f}'),
+                values=("", "TOTAL:", "", "", "", "", f"{tot_ct:.2f}"),
                 tags=("total",)
             )
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+
     def rp_top(self):
+        self._set_prov_filter_active(False)
         d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
         self._clear(["Producto","Cantidad","Ingreso"])
         tot_cant = 0.0
