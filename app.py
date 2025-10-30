@@ -2,6 +2,8 @@ import csv
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from db import *
+import platform
+from tkinter import font as tkfont  
 # ---------- Proveedores ----------
 class VentanaProveedores(tk.Toplevel):
     def __init__(self, master):
@@ -113,7 +115,7 @@ class VentanaProductos(tk.Toplevel):
         self.p_unidad.set("Pieza")
         self.p_unidad.grid(row=r, column=1, padx=6); r += 1
 
-        ttk.Label(frm, text="Precio (solo vendibles):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
+        ttk.Label(frm, text="Precio al público (solo vendibles):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
         self.p_precio = ttk.Entry(frm, width=10); self.p_precio.insert(0,"0"); self.p_precio.grid(row=r, column=1, padx=6); r += 1
 
         ttk.Label(frm, text="Código (obligatorio; si vacío, se autogenera):").grid(row=r, column=0, sticky="w", padx=6, pady=4)
@@ -146,7 +148,7 @@ class VentanaProductos(tk.Toplevel):
 
     def _titulo_codigo(self, *args):
         v = self.var_codigo.get()
-        u = v.upper()  # mejor en mayúsculas para códigos
+        u = v.upper()  
         if v != u:
             self.var_codigo.set(u)
 
@@ -415,7 +417,7 @@ class VentanaVentas(tk.Toplevel):
         ttk.Label(row, text="Nota:").pack(side="left", padx=6)
         self.nota = ttk.Entry(row, width=30); self.nota.pack(side="left")
 
-        ttk.Button(row, text="Registrar ticket", command=self.registrar).pack(side="right", padx=6)
+        ttk.Button(row, text="Registrar venta", command=self.registrar).pack(side="right", padx=6)
 
         busc_box = ttk.LabelFrame(frm, text="Buscar por código o descripción")
         busc_box.pack(fill="both", padx=6, pady=6)
@@ -425,7 +427,7 @@ class VentanaVentas(tk.Toplevel):
         ttk.Button(top, text="Buscar", command=self.buscar).pack(side="left")
         ttk.Label(top, text="Cantidad (pz):").pack(side="left", padx=6)
         self.cant_busq = ttk.Entry(top, width=8); self.cant_busq.insert(0,"1"); self.cant_busq.pack(side="left")
-        ttk.Button(top, text="Agregar seleccionado", command=self.add_seleccion).pack(side="left", padx=6)
+        ttk.Button(top, text="Agregar producto", command=self.add_seleccion).pack(side="left", padx=6)
 
         cols=("codigo","producto","precio")
         self.result = ttk.Treeview(busc_box, columns=cols, show="headings", height=8)
@@ -484,19 +486,22 @@ class VentanaVentas(tk.Toplevel):
     def add_seleccion(self):
         sel = self.result.selection()
         if not sel:
-            messagebox.showerror("Error", "Selecciona un producto de la lista"); return
+            messagebox.showerror("Error", "Selecciona un producto de la lista")
+            return
+
         iid = sel[0]
         codigo, nombre, _ = self.result.item(iid, "values")
         try:
             cant = float(self.cant_busq.get())
         except:
-            messagebox.showerror("Error", "Cantidad inválida"); return
+            messagebox.showerror("Error", "Cantidad inválida")
+            return
 
         r = buscar_vendible_por_codigo(codigo)
         if not r:
-            messagebox.showerror("Error", "El código seleccionado ya no es válido"); return
+            messagebox.showerror("Error", "El código seleccionado ya no es válido")
+            return
 
-        # Validar stock antes de agregar al ticket
         disp = stock_disponible_producto(r["id"])
         if cant > disp:
             messagebox.showerror("Stock insuficiente",
@@ -504,6 +509,19 @@ class VentanaVentas(tk.Toplevel):
             return
 
         self._insert_ticket_row(r["id"], nombre, r["codigo"], r["precio"], cant)
+
+        self.cant_busq.delete(0, "end")
+        self.cant_busq.insert(0, "1")
+        self.result.selection_remove(iid)
+        self.result.focus("")
+        self.q.delete(0, "end")                # ← borra lo escrito en la barra de búsqueda
+        for kid in self.result.get_children():  # ← limpia el grid de resultados
+            self.result.delete(kid)
+        self.result.selection_remove(iid)
+        self.result.focus("")
+
+        # Regresar el foco al buscador para seguir tecleando
+        self.q.focus_set()
 
     
     def _insert_ticket_row(self, pid, nombre, codigo, precio, cantidad):
@@ -635,7 +653,7 @@ class VentanaReportes(tk.Toplevel):
             self.tree.heading(c, text=c)
             self.tree.column(c, width=160)
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
-        self.tree.tag_configure("total", font=("Segoe UI", 10, "bold"), background="#3c3c3c")
+        self.tree.tag_configure("total", font=("Segoe UI", 10, "bold"), background="#F5FBFE")
         self._headers_actuales = []  
 
     def _clear(self, headers):
@@ -655,7 +673,6 @@ class VentanaReportes(tk.Toplevel):
             self.tree.column(col, width=0)
     
     def _aplicar_filtro_proveedor(self):
-        # Solo actúa en Compras
         if str(self.cb_prov.cget("state")) == "disabled":
             return
         self.rp_compras_det()
@@ -680,7 +697,6 @@ class VentanaReportes(tk.Toplevel):
         actual = self.cb_prov.get().strip()
         vals = ["(Todos)"] + nombres
         self.cb_prov["values"] = vals
-        # Mantén selección si sigue existiendo; si no, pon (Todos)
         if actual in vals:
             self.cb_prov.set(actual)
         else:
@@ -755,13 +771,12 @@ class VentanaReportes(tk.Toplevel):
 
 
     def rp_compras_det(self):
-        self._set_prov_filter_active(True)   # <-- activo SOLO aquí
+        self._set_prov_filter_active(True) 
         d = self.desde.get().strip() or None
         h = self.hasta.get().strip() or None
         raw = (self.cb_prov.get().strip() if hasattr(self, "cb_prov") else "")
         prov = None if (raw == "" or raw == "(Todos)") else raw
 
-        # 7 columnas: Fecha | Proveedor | Producto | Cantidad | Unidad | Costo unit. | Costo total
         self._clear(["Fecha","Proveedor","Producto","Cantidad","Unidad","Costo unit.","Costo total"])
 
         tot_ct = 0.0
@@ -776,7 +791,6 @@ class VentanaReportes(tk.Toplevel):
                     "", "end",
                     values=(r["fecha"], r["proveedor"], r["producto"], q, r["unidad"], f"{cu:.2f}", f"{ct:.2f}")
                 )
-            # Fila TOTAL (solo importe) — OJO: comillas y paréntesis cerrados correctamente
             self.tree.insert(
                 "", "end",
                 values=("", "TOTAL:", "", "", "", "", f"{tot_ct:.2f}"),
@@ -828,13 +842,147 @@ class VentanaReportes(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar el CSV:\n{e}")
 
+# --------- Paletas de color ---------
+PALETTES = {
+    "light": {
+        "bg": "#F7F7F9",
+        "panel": "#FFFFFF",
+        "fg": "#23262B",
+        "muted": "#6B7280",
+        "border": "#E5E7EB",
+        "accent": "#0E7490",
+        "accent2": "#10B981",
+        "warn": "#EF4444",
+        "sel_bg": "#D0F0F7",
+        "row_alt": "#FAFAFC",
+        "heading": "#0B5568",
+        "total_bg": "#F5FBFE"
+    },
+    "dark": {
+        "bg": "#1E1E22",
+        "panel": "#2A2B2F",
+        "fg": "#F5F5F5",
+        "muted": "#A1A1AA",
+        "border": "#3F3F46",
+        "accent": "#0EA5E9",
+        "accent2": "#22C55E",
+        "warn": "#EF4444",
+        "sel_bg": "#083344",
+        "row_alt": "#232427",
+        "heading": "#7DD3FC",
+        "total_bg": "#0F172A"
+    }
+}
 
-# ---------- Main ----------
+CURRENT_THEME = "light"
+
+def apply_theme(root: tk.Tk, mode: str = None):
+    global CURRENT_THEME, PALETTE
+    if mode:
+        CURRENT_THEME = mode
+    PALETTE = PALETTES[CURRENT_THEME]
+    root.configure(bg=PALETTE["bg"])
+
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+
+    base_font = tkfont.nametofont("TkDefaultFont")
+    base_font.configure(family="Segoe UI", size=10)
+    root.option_add("*Font", base_font)
+
+    style.configure(".", background=PALETTE["bg"], foreground=PALETTE["fg"])
+
+    style.configure("TFrame", background=PALETTE["bg"])
+    style.configure("TLabelframe", background=PALETTE["panel"], bordercolor=PALETTE["border"])
+    style.configure("TLabelframe.Label",
+                    background=PALETTE["panel"],
+                    foreground=PALETTE["heading"],
+                    font=("Segoe UI", 10, "bold"))
+
+    style.configure("TLabel", background=PALETTE["bg"], foreground=PALETTE["fg"])
+    style.configure("Muted.TLabel", foreground=PALETTE["muted"], background=PALETTE["bg"])
+
+    style.configure("TButton",
+        background=PALETTE["accent"],
+        foreground="white",
+        borderwidth=0,
+        padding=(10, 6)
+    )
+    style.map("TButton",
+        background=[("active", "#0C6A83"), ("pressed", "#0A5B71")],
+        relief=[("pressed", "sunken"), ("!pressed", "flat")]
+    )
+
+    sec_bg = "#E6F5F9" if CURRENT_THEME == "light" else "#253037"
+    sec_bg_active = "#D9EEF4" if CURRENT_THEME == "light" else "#2B3840"
+    style.configure("Secondary.TButton",
+        background=sec_bg,
+        foreground=PALETTE["heading"],
+        borderwidth=0,
+        padding=(10, 6)
+    )
+    style.map("Secondary.TButton",
+        background=[("active", sec_bg_active)]
+    )
+
+    entry_conf = dict(
+        fieldbackground=PALETTE["panel"],
+        background=PALETTE["panel"],
+        foreground=PALETTE["fg"],
+        bordercolor=PALETTE["border"],
+        lightcolor=PALETTE["accent"],
+        darkcolor=PALETTE["border"],
+        padding=4
+    )
+    style.configure("TEntry", **entry_conf)
+    style.configure("TCombobox", **entry_conf)
+    style.map("TCombobox",
+        fieldbackground=[("readonly", PALETTE["panel"])],
+        foreground=[("readonly", PALETTE["fg"])],
+        background=[("readonly", PALETTE["panel"])]
+    )
+
+    # Treeview (tablas)
+    style.configure("Treeview",
+        background=PALETTE["panel"],
+        fieldbackground=PALETTE["panel"],
+        foreground=PALETTE["fg"],
+        bordercolor=PALETTE["border"],
+        rowheight=26
+    )
+    style.map("Treeview",
+        background=[("selected", PALETTE["sel_bg"])],
+        foreground=[("selected", PALETTE["fg"])]
+    )
+    # Headings
+    head_bg = "#F1F5F9" if CURRENT_THEME == "light" else "#33363B"
+    head_active = "#E8EEF4" if CURRENT_THEME == "light" else "#3B3E44"
+    style.configure("Treeview.Heading",
+        background=head_bg,
+        foreground=PALETTE["heading"],
+        relief="flat",
+        padding=(6, 4),
+        font=("Segoe UI", 10, "bold"),
+        bordercolor=PALETTE["border"]
+    )
+    style.map("Treeview.Heading",
+        background=[("active", head_active)]
+    )
+    
+# ---------- Main ---------
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Cafetería — Inventario y Ventas — v2.8")
+        self.title("Cafetería Alé Alí— Inventario y Ventas")
         self.geometry("1000x680")
+        
+        self.modo_inicial = CURRENT_THEME
+        apply_theme(self, self.modo_inicial)
+  
+        
         self._verificar_bd()
         self._menu_principal()
 
@@ -863,21 +1011,31 @@ class MainApp(tk.Tk):
 
     def _menu_principal(self):
         cont = ttk.Frame(self); cont.pack(fill="both", expand=True, padx=20, pady=20)
-        ttk.Label(cont, text="Menú principal", font=("Segoe UI", 16, "bold")).pack(pady=10)
+        ttk.Label(cont, text="Cafetería Alé Alí", font=("Segoe UI", 16, "bold")).pack(pady=10)
+        ttk.Label(cont, text="Menú principal", font=("Segoe UI", 14, "bold")).pack(pady=10)
         grid = ttk.Frame(cont); grid.pack(pady=10)
 
         botones = [
             ("Registro de Productos",  lambda: VentanaProductos(self)),
-            ("Recetas",    lambda: VentanaRecetas(self)),
+            ("Registro de recetas",    lambda: VentanaRecetas(self)),
             ("Compras (Entradas)", lambda: VentanaCompras(self)),
-            ("Producción (Lotes)", lambda: VentanaProduccion(self)),
-            ("Ventas / Merma", lambda: VentanaVentas(self)),
+            ("Producción de elaborados", lambda: VentanaProduccion(self)),
+            ("Control de Ventas / Merma", lambda: VentanaVentas(self)),
             ("Inventario", lambda: VentanaInventario(self)),
             ("Reportes",   lambda: VentanaReportes(self)),
             ("Registro de Proveedores", lambda: VentanaProveedores(self)),
         ]
         for i,(txt,cmd) in enumerate(botones):
             ttk.Button(grid, text=txt, width=28, command=cmd).grid(row=i//2, column=i%2, padx=10, pady=10, sticky="ew")
+        # Toggle modo claro/oscuro
+        def toggle_tema():
+            global CURRENT_THEME
+            nuevo = "dark" if CURRENT_THEME == "light" else "light"
+            apply_theme(self, nuevo)
+            btn_tema.config(text=f"Modo {'claro' if nuevo == 'dark' else 'oscuro'}")
+
+        btn_tema = ttk.Button(cont, text="Modo oscuro", style="Secondary.TButton", command=toggle_tema)
+        btn_tema.pack(pady=(20, 0))
 
 
 if __name__ == "__main__":
