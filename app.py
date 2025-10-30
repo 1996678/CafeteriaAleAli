@@ -452,10 +452,6 @@ class VentanaVentas(tk.Toplevel):
         self.q.focus_set()
 
         self.items_by_iid = {}
-
-        
-   
-
     
 
     def add_codigo(self):
@@ -514,13 +510,12 @@ class VentanaVentas(tk.Toplevel):
         self.cant_busq.insert(0, "1")
         self.result.selection_remove(iid)
         self.result.focus("")
-        self.q.delete(0, "end")                # ← borra lo escrito en la barra de búsqueda
-        for kid in self.result.get_children():  # ← limpia el grid de resultados
+        self.q.delete(0, "end")           
+        for kid in self.result.get_children():  
             self.result.delete(kid)
         self.result.selection_remove(iid)
         self.result.focus("")
 
-        # Regresar el foco al buscador para seguir tecleando
         self.q.focus_set()
 
     
@@ -539,8 +534,6 @@ class VentanaVentas(tk.Toplevel):
         rows = buscar_vendibles_por_texto(q)
         for r in rows:
             self.result.insert("", "end", values=(r["codigo"] or "", r["nombre"], f'{r["precio"]:.2f}'))
-
-        # Autoseleccionar el primer resultado para agilizar “Agregar seleccionado”
         kids = self.result.get_children()
         if kids:
             self.result.selection_set(kids[0])
@@ -567,10 +560,9 @@ class VentanaVentas(tk.Toplevel):
         tipo = self.tipo.get()
         nota = self.nota.get().strip() or ""
 
-        # Revalidar stock de todo el ticket antes de registrar
         faltantes = []
         for (pid, cant, _precio, _codigo, nombre) in self.items_by_iid.values():
-            disp = stock_disponible_producto(pid)  # <-- asegúrate de tener esta función en db.py
+            disp = stock_disponible_producto(pid) 
             if cant > disp:
                 faltantes.append((nombre, disp, cant))
 
@@ -581,10 +573,9 @@ class VentanaVentas(tk.Toplevel):
             messagebox.showerror("Stock insuficiente", msg)
             return
 
-        # Si todo ok, arma payload y registra
         payload = [(pid, cant) for (pid, cant, _precio, _codigo, _nombre) in self.items_by_iid.values()]
         try:
-            vid = registrar_venta(tipo, payload, None, nota)  # cajero=None
+            vid = registrar_venta(tipo, payload, None, nota) 
             self.items_by_iid.clear()
             for iid in self.tree.get_children():
                 self.tree.delete(iid)
@@ -1027,7 +1018,7 @@ class MainApp(tk.Tk):
         ]
         for i,(txt,cmd) in enumerate(botones):
             ttk.Button(grid, text=txt, width=28, command=cmd).grid(row=i//2, column=i%2, padx=10, pady=10, sticky="ew")
-        # Toggle modo claro/oscuro
+            
         def toggle_tema():
             global CURRENT_THEME
             nuevo = "dark" if CURRENT_THEME == "light" else "light"
