@@ -635,10 +635,11 @@ class VentanaReportes(tk.Toplevel):
         ttk.Button(btns, text="Ventas DETALLADO", command=self.rp_ventas_det).pack(side="left", padx=4)
         ttk.Button(btns, text="Merma DETALLADO", command=self.rp_merma_det).pack(side="left", padx=4)
         ttk.Button(btns, text="Compras DETALLADO", command=self.rp_compras_det).pack(side="left", padx=4) 
+        ttk.Button(btns, text="Ganancias DETALLADO", command=self.rp_ganancias).pack(side="left", padx=4)
         ttk.Button(btns, text="Top productos", command=self.rp_top).pack(side="left", padx=4)
-        ttk.Button(btns, text="Exportar CSV", command=self.exportar_csv).pack(side="right", padx=4)
+        ttk.Button(btns, text="Exportar Excel", command=self.exportar_csv).pack(side="right", padx=4)
 
-        cols = ("c1","c2","c3","c4","c5","c6","c7") 
+        cols = ("c1","c2","c3","c4","c5","c6","c7","c8","c9") 
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
         for c in cols:
             self.tree.heading(c, text=c)
@@ -703,7 +704,7 @@ class VentanaReportes(tk.Toplevel):
     def rp_ventas_det(self):
         self._set_prov_filter_active(False)
         d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
-        self._clear(["Fecha","Producto","Cantidad","Precio","Costo unit.","Total"])
+        self._clear(["Fecha","Producto","Unidades vendidas","Precio unit. público","Costo unitario","Total ingresos"])
         
         tot_cant = 0.0
         tot_total = 0.0
@@ -718,14 +719,14 @@ class VentanaReportes(tk.Toplevel):
                     "", "end",
                     values=(
                         r["fecha"], r["producto"], q,
-                        f'{(r["precio_unitario"] or 0):.2f}',
-                        f'{(r["costo_unitario"] or 0):.2f}',
-                        f'{total:.2f}'
+                        f'${(r["precio_unitario"] or 0):.2f}',
+                        f'${(r["costo_unitario"] or 0):.2f}',
+                        f'${total:.2f}'
                     )
                 )
             self.tree.insert(
                 "", "end",
-                values=("","","", "", "TOTAL:", f'{tot_total:.2f}'),
+                values=("","","", "", "TOTAL:", f'${tot_total:.2f}'),
                 tags=("total",)
             )
         except Exception as e:
@@ -734,7 +735,7 @@ class VentanaReportes(tk.Toplevel):
     def rp_merma_det(self):
         self._set_prov_filter_active(False)
         d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
-        self._clear(["Fecha","Producto","Unidades","Precio (venta)","Pérdida"])
+        self._clear(["Fecha","Producto","Unidades vendidas","Precio unit. público","Pérdida"])
         tot_unidades = 0.0
         tot_perdida = 0.0
         try:
@@ -748,13 +749,13 @@ class VentanaReportes(tk.Toplevel):
                     "", "end",
                     values=(
                         r["fecha"], r["producto"], q,
-                        f'{(r["precio_venta"] or 0):.2f}',
-                        f'{perd:.2f}'
+                        f'${(r["precio_venta"] or 0):.2f}',
+                        f'${perd:.2f}'
                     )
                 )
             self.tree.insert(
                 "", "end",
-                values=("", "TOTAL:", f'{tot_unidades:.2f}', "", f'{tot_perdida:.2f}'),
+                values=("", "TOTAL:", f'{tot_unidades:.2f}', "", f'${tot_perdida:.2f}'),
                 tags=("total",)
             )
         except Exception as e:
@@ -768,7 +769,7 @@ class VentanaReportes(tk.Toplevel):
         raw = (self.cb_prov.get().strip() if hasattr(self, "cb_prov") else "")
         prov = None if (raw == "" or raw == "(Todos)") else raw
 
-        self._clear(["Fecha","Proveedor","Producto","Cantidad","Unidad","Costo unit.","Costo total"])
+        self._clear(["Fecha","Proveedor","Producto","Unidades compradas","UoM","Costo unitario","Costo total"])
 
         tot_ct = 0.0
         try:
@@ -780,11 +781,11 @@ class VentanaReportes(tk.Toplevel):
                 tot_ct += ct
                 self.tree.insert(
                     "", "end",
-                    values=(r["fecha"], r["proveedor"], r["producto"], q, r["unidad"], f"{cu:.2f}", f"{ct:.2f}")
+                    values=(r["fecha"], r["proveedor"], r["producto"], q, r["unidad"], f"${cu:.2f}", f"${ct:.2f}")
                 )
             self.tree.insert(
                 "", "end",
-                values=("", "TOTAL:", "", "", "", "", f"{tot_ct:.2f}"),
+                values=("", "TOTAL:", "", "", "", "", f"${tot_ct:.2f}"),
                 tags=("total",)
             )
         except Exception as e:
@@ -794,7 +795,7 @@ class VentanaReportes(tk.Toplevel):
     def rp_top(self):
         self._set_prov_filter_active(False)
         d = self.desde.get().strip() or None; h = self.hasta.get().strip() or None
-        self._clear(["Producto","Cantidad","Ingreso"])
+        self._clear(["Producto","Unidades vendidas","Ingreso"])
         tot_cant = 0.0
         tot_ing  = 0.0
         try:
@@ -805,11 +806,75 @@ class VentanaReportes(tk.Toplevel):
                 tot_cant += q
                 tot_ing  += ing
                 self.tree.insert("", "end", values=(r["nombre"], q, f'{ing:.2f}'))
-            self.tree.insert("", "end", values=("TOTAL:", f'{tot_cant:.2f}', f'{tot_ing:.2f}'),
+            self.tree.insert("", "end", values=("TOTAL:", f'{tot_cant:.2f}', f'${tot_ing:.2f}'),
             tags=("total",)
             )
         except Exception as e:
             messagebox.showerror("Error", str(e))
+            
+    def rp_ganancias(self):
+        d = self.desde.get().strip() or None
+        h = self.hasta.get().strip() or None
+
+        self._clear(["Fecha","Producto","Cantidad","Precio unit. público","Total ingreso","Costo unit.","Margen unit.","Margen total","% Margen"])
+
+        tot_ingreso = 0.0
+        tot_costo   = 0.0
+        tot_margen  = 0.0
+
+        try:
+            rows = reporte_ventas_detallado(d, h)
+            for r in rows:
+                cantidad = float(r["cantidad"])
+                precio_u = float(r["precio_unitario"])
+                costo_u  = float(r["costo_unitario"])
+                ingreso  = float(r.get("subtotal", precio_u * cantidad))
+
+                margen_unit = float(r.get("margen_unit")) if r.get("margen_unit") is not None else (precio_u - costo_u)
+                margen_total = float(r.get("margen_total")) if r.get("margen_total") is not None else (margen_unit * cantidad)
+                pct = float(r.get("margen_pct")) if r.get("margen_pct") is not None else (
+                    (margen_unit / precio_u * 100.0) if precio_u > 0 else 0.0
+                )
+
+                tot_ingreso += ingreso
+                tot_costo   += (costo_u * cantidad)
+                tot_margen  += margen_total
+
+                self.tree.insert("", "end", values=(
+                    r["fecha"],
+                    r["producto"],
+                    cantidad,
+                    f"${precio_u:.2f}",
+                    f"${ingreso:.2f}",
+                    f"${costo_u:.2f}",
+                    f"${margen_unit:.2f}",
+                    f"${margen_total:.2f}",
+                    f"{pct:.2f}%"
+                ))
+
+            pct_total = (tot_margen / tot_ingreso * 100.0) if tot_ingreso > 0 else 0.0
+
+            self.tree.insert("", "end",
+                values=(
+                    "", "TOTAL:", "",
+                    "",                           # Precio unit. no aplica en total
+                    f"${tot_ingreso:.2f}",         # Total ingreso del periodo
+                    f"${tot_costo:.2f}",           # Costo total estimado
+                    "",                           # Margen unit. (no aplica)
+                    f"${tot_margen:.2f}",          # Margen total
+                    f"{pct_total:.2f}%"           # % Margen ponderado
+                ),
+                tags=("total",)
+            )
+            self.tree.tag_configure("total", font=("Segoe UI", 10, "bold"))
+            try:
+                self.tree.tag_configure("total", background=PALETTE.get("total_bg", "#F5FBFE"))
+            except:
+                pass
+
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
 
     def exportar_csv(self):
         if not self._headers_actuales:

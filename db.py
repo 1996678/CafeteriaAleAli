@@ -575,21 +575,43 @@ def reporte_ventas_detallado(desde: str = None, hasta: str = None):
     params = []
     where = ["v.tipo='VENTA'"]
     if desde:
-        where.append("date(v.creado_en)>=date(?)")
-        params.append(desde)
+        where.append("date(v.creado_en)>=date(?)"); params.append(desde)
     if hasta:
-        where.append("date(v.creado_en)<=date(?)")
-        params.append(hasta)
+        where.append("date(v.creado_en)<=date(?)"); params.append(hasta)
     where_sql = "WHERE " + " AND ".join(where)
-    sql = f"""SELECT v.creado_en as fecha, p.nombre as producto, d.cantidad,
-                    d.precio_unitario, p.costo as costo_unitario, d.subtotal
+
+    sql = f"""SELECT v.creado_en as fecha,
+                     p.id   as producto_id,
+                     p.nombre as producto,
+                     d.cantidad, d.precio_unitario, d.subtotal
               FROM ventas v
               JOIN ventas_detalle d ON d.venta_id=v.id
-              JOIN productos p ON p.id=d.producto_id
+              JOIN productos p      ON p.id=d.producto_id
               {where_sql}
               ORDER BY v.creado_en, p.nombre"""
+
+    rows_out = []
     with conectar() as conn:
-        return [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
+        for r in conn.execute(sql, tuple(params)).fetchall():
+            cantidad = float(r["cantidad"] or 0)
+            p_venta  = float(r["precio_unitario"] or 0)
+            costo_u  = float(costo_estimado_producto(r["producto_id"]) or 0)
+            margen_u = p_venta - costo_u
+            margen_t = margen_u * cantidad
+            margen_pct = (margen_u / p_venta * 100.0) if p_venta > 0 else 0.0
+
+            rows_out.append({
+                "fecha": r["fecha"],
+                "producto": r["producto"],
+                "cantidad": cantidad,
+                "precio_unitario": p_venta,
+                "costo_unitario": round(costo_u, 2),
+                "margen_unit": round(margen_u, 2),
+                "margen_total": round(margen_t, 2),
+                "margen_pct": round(margen_pct, 2),
+                "subtotal": float(r["subtotal"] or 0)
+            })
+    return rows_out
 
 
 def reporte_merma_detallado(desde: str = None, hasta: str = None):
@@ -687,3 +709,68 @@ def stock_disponible_producto(producto_id: int) -> float:
         return desde_base(r["unidad"], r["base"])
 
 
+def _ultimo_costo_unitario(conn, pid: int) -> float:
+    """Último costo_unitario pagado por ese producto (según compras_detalle)."""
+    r = conn.execute(
+        "SELECT costo_unitario FROM compras_detalle WHERE producto_id=? ORDER BY id DESC LIMIT 1",
+        (pid,)
+    ).fetchone()
+    if r and r["costo_unitario"] is not None:
+        return float(r["costo_unitario"])
+    r = conn.execute("SELECT costo FROM productos WHERE id=?", (pid,)).fetchone()
+    return float(r["costo"] or 0.0)
+
+
+def costo_estimado_producto(pid: int) -> float:
+    """
+    Costo por UNIDAD DE VENTA del producto:
+    - Insumo/Producto simple: último costo_unitario.
+    - Elaborado: suma de (costo del componente segun unidad × cantidad_base de receta).
+      cantidad_base está en g o pz POR pieza vendida del elaborado.
+    """
+    with conectar() as conn:
+        p = conn.execute(
+            """SELECT p.id, p.unidad, p.es_vendible, c.nombre AS categoria
+               FROM productos p LEFT JOIN categorias c ON c.id=p.categoria_id
+               WHERE p.id=?""",
+            (pid,)
+        ).fetchone()
+        if not p:
+            return 0.0
+
+        # Si NO es elaborado, devolvemos su último costo unitario
+        if p["categoria"] != "Elaborados":
+            return _ultimo_costo_unitario(conn, pid)
+
+        # Es elaborado: calcular por receta
+        receta = conn.execute(
+            "SELECT componente_producto_id, cantidad_base FROM recetas WHERE producto_menu_id=?",
+            (pid,)
+        ).fetchall()
+        if not receta:
+            return 0.0
+
+        total = 0.0
+        for row in receta:
+            comp_id = row["componente_producto_id"]
+            cant    = float(row["cantidad_base"] or 0.0)  # g o pz por pieza
+            comp = conn.execute(
+                "SELECT unidad FROM productos WHERE id=?",
+                (comp_id,)
+            ).fetchone()
+            if not comp:
+                continue
+            costo_u = _ultimo_costo_unitario(conn, comp_id)
+
+            # Convertir por UNIDAD del componente
+            u = comp["unidad"]  # "Pieza", "Gramo", "Kilo"
+            if u == "Pieza":
+                total += costo_u * cant                   # cant en pz
+            elif u == "Gramo":
+                total += costo_u * cant                   # costo_u ya es por gramo
+            elif u == "Kilo":
+                total += costo_u * (cant / 1000.0)        # cant en gramos → kilos
+            else:
+                total += costo_u * cant
+
+        return round(total, 6) 
